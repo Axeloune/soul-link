@@ -1,0 +1,18 @@
+name: SoulLink
+version: '${project.version}'
+main: com.soullink.SoulLinkPlugin
+api-version: '1.21'
+author: Axeloune
+description: Soul Link mode - Share damage and healing between linked players
+
+commands:
+  settings:
+    description: Opens the settings GUI to configure game options
+    usage: /settings
+    permission: soullink.settings
+    permission-message: You don't have permission to use this command
+
+permissions:
+  soullink.settings:
+    description: Allows access to the settings command
+    default: op
