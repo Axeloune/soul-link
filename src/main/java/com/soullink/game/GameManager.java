@@ -15,6 +15,7 @@ public class GameManager {
     private final Set<UUID> linkedPlayers;
     private final Set<UUID> spectators;
     private boolean gameActive;
+    private int locateBarTaskId;
     
     // Settings
     private boolean naturalRegeneration;
@@ -30,11 +31,15 @@ public class GameManager {
         this.spectators = new HashSet<>();
         this.playerLastChances = new HashMap<>();
         this.gameActive = false;
+        this.locateBarTaskId = -1;
         
         // Default settings
         this.naturalRegeneration = true;
         this.lastChanceCount = 1;
         this.locateBarEnabled = true;
+        
+        // Start locate bar update task
+        startLocateBarTask();
     }
     
     public void linkPlayer(Player player) {
@@ -58,21 +63,12 @@ public class GameManager {
         if (!gameActive) {
             startGame();
         }
-        
-        // Update locate bars for all players
-        if (locateBarEnabled) {
-            updateLocateBars();
-        }
     }
     
     public void unlinkPlayer(Player player) {
         linkedPlayers.remove(player.getUniqueId());
         spectators.remove(player.getUniqueId());
         playerLastChances.remove(player.getUniqueId());
-        
-        if (locateBarEnabled) {
-            updateLocateBars();
-        }
     }
     
     private void startGame() {
@@ -196,18 +192,28 @@ public class GameManager {
         for (UUID uuid : linkedPlayers) {
             Player player = Bukkit.getPlayer(uuid);
             if (player != null && player.isOnline()) {
-                // Create locate bars for all other linked players
+                // Set compass target to point to the nearest linked player
+                Player nearestPlayer = null;
+                double nearestDistance = Double.MAX_VALUE;
+                
                 for (UUID otherUuid : linkedPlayers) {
                     if (!otherUuid.equals(uuid)) {
                         Player otherPlayer = Bukkit.getPlayer(otherUuid);
                         if (otherPlayer != null && otherPlayer.isOnline()) {
-                            // Set locate bar (tracking) - this is a 1.21.6+ feature
-                            try {
-                                player.setCompassTarget(otherPlayer.getLocation());
-                            } catch (Exception e) {
-                                // Fallback if locate bar not available
+                            double distance = player.getLocation().distance(otherPlayer.getLocation());
+                            if (distance < nearestDistance) {
+                                nearestDistance = distance;
+                                nearestPlayer = otherPlayer;
                             }
                         }
+                    }
+                }
+                
+                if (nearestPlayer != null) {
+                    try {
+                        player.setCompassTarget(nearestPlayer.getLocation());
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("Failed to update compass target for player " + player.getName() + ": " + e.getMessage());
                     }
                 }
             }
@@ -246,9 +252,6 @@ public class GameManager {
     
     public void setLocateBarEnabled(boolean enabled) {
         this.locateBarEnabled = enabled;
-        if (enabled) {
-            updateLocateBars();
-        }
     }
     
     public boolean isGameActive() {
@@ -259,7 +262,21 @@ public class GameManager {
         return Collections.unmodifiableSet(linkedPlayers);
     }
     
+    private void startLocateBarTask() {
+        // Update locate bars every second (20 ticks)
+        locateBarTaskId = Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, 
+            this::updateLocateBars, 20L, 20L);
+    }
+    
+    private void stopLocateBarTask() {
+        if (locateBarTaskId != -1) {
+            Bukkit.getScheduler().cancelTask(locateBarTaskId);
+            locateBarTaskId = -1;
+        }
+    }
+    
     public void cleanup() {
+        stopLocateBarTask();
         linkedPlayers.clear();
         spectators.clear();
         playerLastChances.clear();
