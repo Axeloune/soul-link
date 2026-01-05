@@ -48,7 +48,7 @@ public class PlayerListener implements Listener {
         
         // Show damage on action bar
         if (damage > 0) {
-            player.sendActionBar(Component.text(String.format("❤ Damage Taken: -%.1f", damage / 2), NamedTextColor.RED));
+            player.sendActionBar(Component.text(String.format("❤ Damage Taken: -%.1f", damage), NamedTextColor.RED));
         }
         
         // Share damage with linked players
@@ -66,7 +66,7 @@ public class PlayerListener implements Listener {
         
         // Show healing on action bar
         if (healing > 0) {
-            player.sendActionBar(Component.text(String.format("❤ Healing: +%.1f", healing / 2), NamedTextColor.GREEN));
+            player.sendActionBar(Component.text(String.format("❤ Healing: +%.1f", healing), NamedTextColor.GREEN));
         }
         
         // Share healing with linked players

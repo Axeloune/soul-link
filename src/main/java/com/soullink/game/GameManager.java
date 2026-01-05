@@ -139,7 +139,7 @@ public class GameManager {
                 }
                 
                 player.setHealth(newHealth);
-                player.sendActionBar(Component.text(String.format("❤ Shared Damage: -%.1f", damage / 2), NamedTextColor.RED));
+                player.sendActionBar(Component.text(String.format("❤ Shared Damage: -%.1f", damage), NamedTextColor.RED));
             }
         }
     }
@@ -157,7 +157,7 @@ public class GameManager {
                 double newHealth = Math.min(maxHealth, currentHealth + healing);
                 
                 player.setHealth(newHealth);
-                player.sendActionBar(Component.text(String.format("❤ Shared Healing: +%.1f", healing / 2), NamedTextColor.GREEN));
+                player.sendActionBar(Component.text(String.format("❤ Shared Healing: +%.1f", healing), NamedTextColor.GREEN));
             }
         }
     }
