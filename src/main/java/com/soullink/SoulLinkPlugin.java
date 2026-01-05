@@ -12,8 +12,16 @@ public class SoulLinkPlugin extends JavaPlugin {
     
     @Override
     public void onEnable() {
+        // Save default config if it doesn't exist
+        saveDefaultConfig();
+        
         // Initialize game manager
         gameManager = new GameManager(this);
+        
+        // Load settings from config
+        gameManager.setNaturalRegeneration(getConfig().getBoolean("natural-regeneration", true));
+        gameManager.setLastChanceCount(getConfig().getInt("last-chance-count", 1));
+        gameManager.setLocateBarEnabled(getConfig().getBoolean("locate-bar-enabled", true));
         
         // Register commands
         getCommand("settings").setExecutor(new SettingsCommand(gameManager));
@@ -28,6 +36,12 @@ public class SoulLinkPlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         if (gameManager != null) {
+            // Save settings to config
+            getConfig().set("natural-regeneration", gameManager.isNaturalRegeneration());
+            getConfig().set("last-chance-count", gameManager.getLastChanceCount());
+            getConfig().set("locate-bar-enabled", gameManager.isLocateBarEnabled());
+            saveConfig();
+            
             gameManager.cleanup();
         }
         getLogger().info("SoulLink plugin has been disabled!");
