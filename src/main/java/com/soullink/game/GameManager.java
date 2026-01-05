@@ -23,6 +23,9 @@ public class GameManager {
     private final Map<UUID, Integer> playerLastChances;
     private boolean locateBarEnabled;
     
+    // Flag to prevent infinite recursion when sharing damage/healing
+    private final Set<UUID> processingPlayers;
+    
     private static final int MAX_PLAYERS = 4;
     
     public GameManager(SoulLinkPlugin plugin) {
@@ -30,6 +33,7 @@ public class GameManager {
         this.linkedPlayers = new HashSet<>();
         this.spectators = new HashSet<>();
         this.playerLastChances = new HashMap<>();
+        this.processingPlayers = new HashSet<>();
         this.gameActive = false;
         this.locateBarTaskId = -1;
         
@@ -109,33 +113,45 @@ public class GameManager {
             return;
         }
         
+        // Prevent infinite recursion
+        if (processingPlayers.contains(source.getUniqueId())) {
+            return;
+        }
+        
         for (UUID uuid : linkedPlayers) {
             Player player = Bukkit.getPlayer(uuid);
             if (player != null && player.isOnline() && !player.equals(source)) {
-                double currentHealth = player.getHealth();
-                double newHealth = Math.max(0, currentHealth - damage);
+                // Mark as processing to prevent recursion
+                processingPlayers.add(player.getUniqueId());
                 
-                // Check if player would die
-                if (newHealth <= 0) {
-                    // Check for last chance
-                    int chances = playerLastChances.getOrDefault(player.getUniqueId(), 0);
-                    if (chances > 0) {
-                        // Use last chance
-                        playerLastChances.put(player.getUniqueId(), chances - 1);
-                        player.setHealth(1.0);
-                        player.sendActionBar(Component.text("Last Chance Used! Remaining: " + (chances - 1), NamedTextColor.YELLOW));
-                        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f);
-                        continue;
-                    } else {
-                        // Player dies
-                        player.setHealth(0);
-                        endGame();
-                        return;
+                try {
+                    double currentHealth = player.getHealth();
+                    double newHealth = Math.max(0, currentHealth - damage);
+                    
+                    // Check if player would die
+                    if (newHealth <= 0) {
+                        // Check for last chance
+                        int chances = playerLastChances.getOrDefault(player.getUniqueId(), 0);
+                        if (chances > 0) {
+                            // Use last chance
+                            playerLastChances.put(player.getUniqueId(), chances - 1);
+                            player.setHealth(1.0);
+                            player.sendActionBar(Component.text("Last Chance Used! Remaining: " + (chances - 1), NamedTextColor.YELLOW));
+                            player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f);
+                            continue;
+                        } else {
+                            // Player dies - use damage() instead of setHealth(0) for proper death handling
+                            player.damage(player.getHealth() + 1);
+                            endGame();
+                            return;
+                        }
                     }
+                    
+                    player.setHealth(newHealth);
+                    player.sendActionBar(Component.text(String.format("❤ Shared Damage: -%.1f", damage), NamedTextColor.RED));
+                } finally {
+                    processingPlayers.remove(player.getUniqueId());
                 }
-                
-                player.setHealth(newHealth);
-                player.sendActionBar(Component.text(String.format("❤ Shared Damage: -%.1f", damage), NamedTextColor.RED));
             }
         }
     }
@@ -145,15 +161,27 @@ public class GameManager {
             return;
         }
         
+        // Prevent infinite recursion
+        if (processingPlayers.contains(source.getUniqueId())) {
+            return;
+        }
+        
         for (UUID uuid : linkedPlayers) {
             Player player = Bukkit.getPlayer(uuid);
             if (player != null && player.isOnline() && !player.equals(source)) {
-                double currentHealth = player.getHealth();
-                double maxHealth = player.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue();
-                double newHealth = Math.min(maxHealth, currentHealth + healing);
+                // Mark as processing to prevent recursion
+                processingPlayers.add(player.getUniqueId());
                 
-                player.setHealth(newHealth);
-                player.sendActionBar(Component.text(String.format("❤ Shared Healing: +%.1f", healing), NamedTextColor.GREEN));
+                try {
+                    double currentHealth = player.getHealth();
+                    double maxHealth = player.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).getValue();
+                    double newHealth = Math.min(maxHealth, currentHealth + healing);
+                    
+                    player.setHealth(newHealth);
+                    player.sendActionBar(Component.text(String.format("❤ Shared Healing: +%.1f", healing), NamedTextColor.GREEN));
+                } finally {
+                    processingPlayers.remove(player.getUniqueId());
+                }
             }
         }
     }
@@ -280,6 +308,7 @@ public class GameManager {
         linkedPlayers.clear();
         spectators.clear();
         playerLastChances.clear();
+        processingPlayers.clear();
         gameActive = false;
     }
 }
