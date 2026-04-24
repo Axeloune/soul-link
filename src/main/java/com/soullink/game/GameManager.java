@@ -281,6 +281,7 @@ public class GameManager {
     private void unloadAndDeleteWorld(String worldName) {
         World world = Bukkit.getWorld(worldName);
         if (world != null) {
+            // Pass false for save — world data is being permanently deleted
             Bukkit.unloadWorld(world, false);
         }
         File worldFolder = new File(Bukkit.getWorldContainer(), worldName);
@@ -295,12 +296,14 @@ public class GameManager {
             for (File file : files) {
                 if (file.isDirectory()) {
                     deleteFolder(file);
-                } else {
-                    file.delete();
+                } else if (!file.delete()) {
+                    plugin.getLogger().warning("Could not delete file: " + file.getAbsolutePath());
                 }
             }
         }
-        folder.delete();
+        if (!folder.delete()) {
+            plugin.getLogger().warning("Could not delete folder: " + folder.getAbsolutePath());
+        }
     }
 
     private void spawnVictoryFireworks(Player player) {
