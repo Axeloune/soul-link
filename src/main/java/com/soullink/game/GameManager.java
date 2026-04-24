@@ -137,10 +137,20 @@ public class GameManager {
         }
         gameEnding = true;
         gameActive = false;
-        
-        // Send death message to all players
-        Bukkit.broadcast(Component.text("A linked player has died! Game Over!", NamedTextColor.RED));
-        
+
+        // Single server-wide broadcast
+        Bukkit.broadcast(Component.text("Game Over! A linked player has fallen!", NamedTextColor.RED));
+
+        // Show Game Over title and play a dramatic sound to every online player
+        Title gameOverTitle = Title.title(
+                Component.text("GAME OVER", NamedTextColor.RED),
+                Component.text("A linked player has fallen!", NamedTextColor.DARK_RED),
+                Title.Times.times(Duration.ofSeconds(1), Duration.ofSeconds(4), Duration.ofSeconds(1)));
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            online.showTitle(gameOverTitle);
+            online.playSound(online.getLocation(), Sound.ENTITY_WITHER_SPAWN, 1.0f, 0.8f);
+        }
+
         // Make all linked players spectators
         for (UUID uuid : linkedPlayers) {
             Player player = Bukkit.getPlayer(uuid);
@@ -337,7 +347,7 @@ public class GameManager {
         }.runTaskTimer(plugin, 0L, 10L);
     }
     
-    public void shareDamage(Player source, double damage) {
+    public void shareDamage(Player source, double damage, String causeName) {
         if (!gameActive || !linkedPlayers.contains(source.getUniqueId())) {
             return;
         }
@@ -362,22 +372,23 @@ public class GameManager {
                         // Check for last chance
                         int chances = playerLastChances.getOrDefault(player.getUniqueId(), 0);
                         if (chances > 0) {
-                            // Use last chance
                             playerLastChances.put(player.getUniqueId(), chances - 1);
                             player.setHealth(1.0);
-                            player.sendActionBar(Component.text("Last Chance Used! Remaining: " + (chances - 1), NamedTextColor.YELLOW));
+                            player.sendActionBar(Component.text(
+                                    "Last Chance Used! Remaining: " + (chances - 1), NamedTextColor.YELLOW));
                             player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f);
                             continue;
                         } else {
-                            // Player dies - use damage() instead of setHealth(0) for proper death handling
-                            player.damage(player.getHealth() + 1);
+                            // End the game without actually killing the player
                             endGame();
                             return;
                         }
                     }
                     
                     player.setHealth(newHealth);
-                    player.sendActionBar(Component.text(String.format("❤ Shared Damage: -%.1f", damage), NamedTextColor.RED));
+                    player.sendActionBar(Component.text(
+                            String.format("❤ %s: -%.1f (from %s)", source.getName(), damage, causeName),
+                            NamedTextColor.RED));
                 } finally {
                     processingPlayers.remove(player.getUniqueId());
                 }
@@ -385,7 +396,7 @@ public class GameManager {
         }
     }
     
-    public void shareHealing(Player source, double healing) {
+    public void shareHealing(Player source, double healing, String causeName) {
         if (!gameActive || !linkedPlayers.contains(source.getUniqueId())) {
             return;
         }
@@ -407,7 +418,9 @@ public class GameManager {
                     double newHealth = Math.min(maxHealth, currentHealth + healing);
                     
                     player.setHealth(newHealth);
-                    player.sendActionBar(Component.text(String.format("❤ Shared Healing: +%.1f", healing), NamedTextColor.GREEN));
+                    player.sendActionBar(Component.text(
+                            String.format("❤ %s: +%.1f (from %s)", source.getName(), healing, causeName),
+                            NamedTextColor.GREEN));
                 } finally {
                     processingPlayers.remove(player.getUniqueId());
                 }
@@ -437,6 +450,34 @@ public class GameManager {
                 return;
             }
             
+            endGame();
+        }
+    }
+
+    /**
+     * Returns true if the given player is currently a linked game participant.
+     */
+    public boolean isLinkedPlayer(Player player) {
+        return linkedPlayers.contains(player.getUniqueId());
+    }
+
+    /**
+     * Called when a linked player receives damage that would kill them (health - damage ≤ 0).
+     * The damage event has already been cancelled by the listener before this is invoked.
+     * Uses a last chance if available, or triggers game over.
+     */
+    public void handleLethalDamage(Player player) {
+        if (!gameActive || gameEnding) {
+            return;
+        }
+        int chances = playerLastChances.getOrDefault(player.getUniqueId(), 0);
+        if (chances > 0) {
+            playerLastChances.put(player.getUniqueId(), chances - 1);
+            player.setHealth(1.0);
+            player.sendActionBar(Component.text(
+                    "Last Chance Used! Remaining: " + (chances - 1), NamedTextColor.YELLOW));
+            player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f);
+        } else {
             endGame();
         }
     }
