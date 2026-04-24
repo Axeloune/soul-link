@@ -291,7 +291,7 @@ public class GameManager {
     private void unloadAndDeleteWorld(String worldName) {
         World world = Bukkit.getWorld(worldName);
         if (world != null) {
-            // Pass false for save — world data is being permanently deleted
+            // Do not save world data to disk — it will be deleted immediately after unloading
             Bukkit.unloadWorld(world, false);
         }
         File worldFolder = new File(Bukkit.getWorldContainer(), worldName);

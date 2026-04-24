@@ -143,6 +143,9 @@ public class PlayerListener implements Listener {
             }
             case MAGIC -> "Potion";
             case MAGIC_REGEN -> "Regeneration Effect";
+            // WITHER_SPAWN fires when the Wither boss spawns and resets to full health;
+            // ENDER_CRYSTAL fires when an end crystal heals the Ender Dragon.
+            // Both are valid Bukkit enum values but will rarely (if ever) fire for players.
             case WITHER_SPAWN -> "Wither Spawn";
             case ENDER_CRYSTAL -> "End Crystal";
             case CUSTOM -> "Custom Effect";
