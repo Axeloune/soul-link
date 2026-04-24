@@ -7,5 +7,11 @@ natural-regeneration: true
 last-chance-count: 1
 locate-bar-enabled: true
 
+# Show health bars (hearts) for all players in the TAB list
+show-health-bars: true
+
+# Make linked players glow (visible through walls) for each other
+linked-player-glow: true
+
 # Maximum number of linked players
 max-players: 4
