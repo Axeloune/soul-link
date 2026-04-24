@@ -3,10 +3,16 @@ package com.soullink.game;
 import com.soullink.SoulLinkPlugin;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.title.Title;
 import org.bukkit.*;
+import org.bukkit.entity.EntityType;
+import org.bukkit.entity.Firework;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.meta.FireworkMeta;
 import org.bukkit.scheduler.BukkitRunnable;
 
+import java.io.File;
+import java.time.Duration;
 import java.util.*;
 
 public class GameManager {
@@ -25,7 +31,15 @@ public class GameManager {
     
     // Flag to prevent infinite recursion when sharing damage/healing
     private final Set<UUID> processingPlayers;
-    
+
+    // Flag to prevent double-triggering of game end / world reset
+    private boolean gameEnding;
+
+    // Current active world names (default to standard Bukkit world names)
+    private String currentOverworldName;
+    private String currentNetherName;
+    private String currentEndName;
+
     private static final int MAX_PLAYERS = 4;
     
     public GameManager(SoulLinkPlugin plugin) {
@@ -35,7 +49,23 @@ public class GameManager {
         this.playerLastChances = new HashMap<>();
         this.processingPlayers = new HashSet<>();
         this.gameActive = false;
+        this.gameEnding = false;
         this.locateBarTaskId = -1;
+
+        // Resolve default world names from the server's loaded worlds
+        List<World> worlds = Bukkit.getWorlds();
+        this.currentOverworldName = worlds.stream()
+                .filter(w -> w.getEnvironment() == World.Environment.NORMAL)
+                .map(World::getName)
+                .findFirst().orElse("world");
+        this.currentNetherName = worlds.stream()
+                .filter(w -> w.getEnvironment() == World.Environment.NETHER)
+                .map(World::getName)
+                .findFirst().orElse("world_nether");
+        this.currentEndName = worlds.stream()
+                .filter(w -> w.getEnvironment() == World.Environment.THE_END)
+                .map(World::getName)
+                .findFirst().orElse("world_the_end");
         
         // Default settings
         this.naturalRegeneration = true;
@@ -84,17 +114,34 @@ public class GameManager {
             world.setDifficulty(Difficulty.HARD);
         }
         
+        // Show start title and play sound to all linked players
+        Title startTitle = Title.title(
+                Component.text("SOUL LINK", NamedTextColor.GOLD),
+                Component.text("A new adventure begins!", NamedTextColor.GREEN),
+                Title.Times.times(Duration.ofSeconds(1), Duration.ofSeconds(3), Duration.ofSeconds(1)));
+        for (UUID uuid : linkedPlayers) {
+            Player player = Bukkit.getPlayer(uuid);
+            if (player != null && player.isOnline()) {
+                player.showTitle(startTitle);
+                player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 0.8f);
+            }
+        }
+        
         // Broadcast game start
         Bukkit.broadcast(Component.text("Soul Link game has started!", NamedTextColor.GOLD));
     }
     
     public void endGame() {
+        if (!gameActive || gameEnding) {
+            return;
+        }
+        gameEnding = true;
         gameActive = false;
         
         // Send death message to all players
         Bukkit.broadcast(Component.text("A linked player has died! Game Over!", NamedTextColor.RED));
         
-        // Respawn all linked players as spectators
+        // Make all linked players spectators
         for (UUID uuid : linkedPlayers) {
             Player player = Bukkit.getPlayer(uuid);
             if (player != null && player.isOnline()) {
@@ -106,6 +153,185 @@ public class GameManager {
         linkedPlayers.clear();
         spectators.clear();
         playerLastChances.clear();
+        
+        // Schedule world reset after a short delay so players see the game-over message
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                doWorldReset();
+            }
+        }.runTaskLater(plugin, 100L); // 5 seconds
+    }
+
+    /**
+     * Called when the Ender Dragon is killed. Shows a victory title and fireworks
+     * to all surviving linked players, then triggers a world reset.
+     */
+    public void handleDragonDeath() {
+        if (!gameActive || gameEnding) {
+            return;
+        }
+        gameEnding = true;
+        gameActive = false;
+
+        Bukkit.broadcast(Component.text("The Ender Dragon has been defeated! You WIN!", NamedTextColor.GOLD));
+
+        // Collect surviving linked players before clearing the set
+        List<Player> winners = new ArrayList<>();
+        for (UUID uuid : linkedPlayers) {
+            Player player = Bukkit.getPlayer(uuid);
+            if (player != null && player.isOnline()) {
+                winners.add(player);
+            }
+        }
+
+        // Show victory title and fireworks to all survivors
+        Title victoryTitle = Title.title(
+                Component.text("YOU WIN!", NamedTextColor.GOLD),
+                Component.text("The Ender Dragon has been slain!", NamedTextColor.YELLOW),
+                Title.Times.times(Duration.ofSeconds(1), Duration.ofSeconds(5), Duration.ofSeconds(1)));
+        for (Player player : winners) {
+            player.showTitle(victoryTitle);
+            player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
+            spawnVictoryFireworks(player);
+        }
+
+        // Clear data
+        linkedPlayers.clear();
+        spectators.clear();
+        playerLastChances.clear();
+
+        // Schedule world reset after celebration (10 seconds)
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                doWorldReset();
+            }
+        }.runTaskLater(plugin, 200L);
+    }
+
+    /**
+     * Creates fresh overworld, nether and end worlds, teleports all online players
+     * to the new overworld, deletes the old worlds, then restarts the game.
+     */
+    private void doWorldReset() {
+        Bukkit.broadcast(Component.text("Generating new worlds, please wait...", NamedTextColor.AQUA));
+
+        String suffix = String.valueOf(System.currentTimeMillis());
+        String newOverworldName = "soul_world_" + suffix;
+        String newNetherName   = "soul_nether_" + suffix;
+        String newEndName      = "soul_end_" + suffix;
+
+        World newOverworld = new WorldCreator(newOverworldName)
+                .environment(World.Environment.NORMAL)
+                .generateStructures(true)
+                .createWorld();
+        World newNether = new WorldCreator(newNetherName)
+                .environment(World.Environment.NETHER)
+                .generateStructures(true)
+                .createWorld();
+        World newEnd = new WorldCreator(newEndName)
+                .environment(World.Environment.THE_END)
+                .generateStructures(true)
+                .createWorld();
+
+        if (newOverworld == null || newNether == null || newEnd == null) {
+            plugin.getLogger().severe("Failed to create one or more new worlds! Aborting reset.");
+            Bukkit.broadcast(Component.text("World generation failed! Please contact an admin.", NamedTextColor.RED));
+            gameEnding = false;
+            return;
+        }
+
+        // Apply game rules to new worlds
+        for (World world : List.of(newOverworld, newNether, newEnd)) {
+            world.setGameRule(GameRule.NATURAL_REGENERATION, naturalRegeneration);
+            world.setDifficulty(Difficulty.HARD);
+        }
+
+        Bukkit.broadcast(Component.text("New worlds generated! Teleporting all players...", NamedTextColor.GREEN));
+
+        // Teleport all online players to the new overworld spawn
+        Location spawnLocation = newOverworld.getSpawnLocation();
+        List<Player> allPlayers = new ArrayList<>(Bukkit.getOnlinePlayers());
+        for (Player player : allPlayers) {
+            player.setGameMode(GameMode.SURVIVAL);
+            player.teleport(spawnLocation);
+        }
+
+        // Unload and delete old worlds
+        String oldOverworldName = currentOverworldName;
+        String oldNetherName   = currentNetherName;
+        String oldEndName      = currentEndName;
+
+        currentOverworldName = newOverworldName;
+        currentNetherName   = newNetherName;
+        currentEndName      = newEndName;
+
+        unloadAndDeleteWorld(oldOverworldName);
+        unloadAndDeleteWorld(oldNetherName);
+        unloadAndDeleteWorld(oldEndName);
+
+        // Reset ending flag and re-link all players to start a new game
+        gameEnding = false;
+        for (Player player : allPlayers) {
+            linkPlayer(player);
+        }
+    }
+
+    private void unloadAndDeleteWorld(String worldName) {
+        World world = Bukkit.getWorld(worldName);
+        if (world != null) {
+            Bukkit.unloadWorld(world, false);
+        }
+        File worldFolder = new File(Bukkit.getWorldContainer(), worldName);
+        if (worldFolder.exists()) {
+            deleteFolder(worldFolder);
+        }
+    }
+
+    private void deleteFolder(File folder) {
+        File[] files = folder.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (file.isDirectory()) {
+                    deleteFolder(file);
+                } else {
+                    file.delete();
+                }
+            }
+        }
+        folder.delete();
+    }
+
+    private void spawnVictoryFireworks(Player player) {
+        new BukkitRunnable() {
+            int count = 0;
+
+            @Override
+            public void run() {
+                if (count >= 10 || !player.isOnline()) {
+                    cancel();
+                    return;
+                }
+                double offsetX = (Math.random() - 0.5) * 4;
+                double offsetZ = (Math.random() - 0.5) * 4;
+                Location loc = player.getLocation().add(offsetX, 1, offsetZ);
+
+                Firework fw = (Firework) player.getWorld().spawnEntity(loc, EntityType.FIREWORK_ROCKET);
+                FireworkMeta meta = fw.getFireworkMeta();
+                FireworkEffect effect = FireworkEffect.builder()
+                        .with(FireworkEffect.Type.BALL_LARGE)
+                        .withColor(Color.GOLD, Color.RED, Color.WHITE)
+                        .withFade(Color.YELLOW)
+                        .trail(true)
+                        .flicker(true)
+                        .build();
+                meta.addEffect(effect);
+                meta.setPower(1);
+                fw.setFireworkMeta(meta);
+                count++;
+            }
+        }.runTaskTimer(plugin, 0L, 10L);
     }
     
     public void shareDamage(Player source, double damage) {
@@ -310,5 +536,6 @@ public class GameManager {
         playerLastChances.clear();
         processingPlayers.clear();
         gameActive = false;
+        gameEnding = false;
     }
 }
