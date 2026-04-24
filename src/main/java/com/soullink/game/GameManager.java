@@ -334,7 +334,7 @@ public class GameManager {
                 FireworkMeta meta = fw.getFireworkMeta();
                 FireworkEffect effect = FireworkEffect.builder()
                         .with(FireworkEffect.Type.BALL_LARGE)
-                        .withColor(Color.GOLD, Color.RED, Color.WHITE)
+                        .withColor(Color.NAVY, Color.RED, Color.WHITE)
                         .withFade(Color.YELLOW)
                         .trail(true)
                         .flicker(true)
